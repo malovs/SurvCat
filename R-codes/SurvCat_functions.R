@@ -1,9 +1,11 @@
+#####################################################
+############ contrasts chi square methods 
+############ date: 28.07.2023
+#####################################################
 library(survival)
 library(mapplots)
 library(Matrix)
-#####################################################
-############ contrasts chi square methods 
-#####################################################
+library(MASS)
 ## contrast testing
 tst.contr<-function(A,contrasts=TRUE,basis=TRUE){ # testing 
   f<-TRUE 
@@ -92,12 +94,13 @@ asy.survfit<-function(km,t,types=c("km","na"),var="greenwood"){
       ftr.j<-km.i$time<=t[j]
       if (sum(ftr.j)==0){ ti<-c(ti,0) } else { ti<-c(ti,max(which(ftr.j))) }
     }
+    if (sum(ti!=0)==0){ stop("The obtained estimator is singular: there is no failures until the latest breakpoint") }
     tti<-ti[ti!=0]
     km.i<-km.i[tti,]
     f0.i<-ti==0
     sf0.i<-sum(f0.i)
     if (sf0.i>0){ 
-      km0.i<-as.data.frame(t(matrix(c(0,km.i$n.risk[1],0,1,0,0)),nrow=6,ncol=sf0.i))
+      km0.i<-as.data.frame(t(matrix(c(0,km.i$n.risk[1],0,1,0,0),nrow=6,ncol=sf0.i)))
       names(km0.i)<-names(km.i)
       km.i<-rbind(km0.i,km.i)
     }
@@ -149,7 +152,7 @@ chisq.surv<-function(km,brk,contr=contr.helmert(length(km)),par="cumulative",typ
   }
   lkm<-length(km)
   lt<-length(brk)
-  if (!(is.matrix(contr)|is.numeric(contr))|(is.matrix(contr) & dim(contr)[1]!=lkm) | (is.numeric(contr) & length(contr)!=lkm)){
+  if (!(is.matrix(contr)|is.numeric(contr))|(is.matrix(contr) & dim(contr)[1]!=lkm) | (is.vector(contr) & length(contr)!=lkm)){
     warning("The arguments km and contr are inconsistent: the contrasts was changed to default")
     contr<-lkm
   } 
@@ -158,9 +161,9 @@ chisq.surv<-function(km,brk,contr=contr.helmert(length(km)),par="cumulative",typ
   v0<-list()
   if (type=="km"){
     for (i in 1:lkm){
-      cdiff<-diag(-1,lkm)
-      cdiff[2:lkm,1:(lkm-1)]<-cdiff[2:lkm,1:(lkm-1)]+diag(1,(lkm-1))
-      adiff<-as.matrix(c(1,array(0,dim=(lkm-1))))
+      cdiff<-diag(-1,lt)
+      cdiff[2:lt,1:(lt-1)]<-cdiff[2:lt,1:(lt-1)]+diag(1,(lt-1))
+      adiff<-as.matrix(c(1,array(0,dim=(lt-1))))
       q0<-km[[i]]$summary
       b0[[i]]<-q0$surv
       v0[[i]]<-km[[i]]$km.var
@@ -175,8 +178,8 @@ chisq.surv<-function(km,brk,contr=contr.helmert(length(km)),par="cumulative",typ
   # 
   if (type=="na"){
     for (i in 1:lkm){
-      cdiff<-diag(1,lkm)
-      cdiff[2:lkm,1:(lkm-1)]<-cdiff[2:lkm,1:(lkm-1)]+diag(-1,(lkm-1))
+      cdiff<-diag(1,lt)
+      cdiff[2:lt,1:(lt-1)]<-cdiff[2:lt,1:(lt-1)]+diag(-1,(lt-1))
       q0<-km[[i]]$summary
       b0[[i]]<-q0$cumhaz
       v0[[i]]<-km[[i]]$na.var
@@ -193,9 +196,16 @@ chisq.surv<-function(km,brk,contr=contr.helmert(length(km)),par="cumulative",typ
   psi<-t(A)%*%b
   v.psi<-t(A)%*%v%*%A
   #
-  v1<-solve(v.psi)
+  rv.psi<-as.numeric(rankMatrix(v.psi))
+  dv.psi<-dim(v.psi)
+  if (rv.psi==dv.psi[1]){
+    v1<-solve(v.psi)
+  } else { 
+    warning("The contrasts estimators are singular: the true degrees of freedom is less then the number of contrasts")
+    v1<-ginv(v.psi) 
+    }
   out$stat<-t(psi)%*%v1%*%psi
-  out$df<-as.numeric(rankMatrix(v1))
+  out$df<-rv.psi
   out$p.value<-pchisq(out$stat,out$df,lower.tail = FALSE)
   out$base.contrasts<-contr
   out$contrasts<-A
@@ -278,9 +288,9 @@ confint.surv<-function(km,brk,level=0.95,alpha=NA,joint=TRUE,side="both",contr="
     v0<-list()
     if (type=="km"){
       for (i in 1:llv){
-        cdiff<-diag(-1,llv)
-        cdiff[2:llv,1:(llv-1)]<-cdiff[2:llv,1:(llv-1)]+diag(1,(llv-1))
-        adiff<-as.matrix(c(1,array(0,dim=(llv-1))))
+        cdiff<-diag(-1,lt)
+        cdiff[2:lt,1:(lt-1)]<-cdiff[2:lt,1:(lt-1)]+diag(1,(lt-1))
+        adiff<-as.matrix(c(1,array(0,dim=(lt-1))))
         q0<-km[[i]]$summary
         b0[[i]]<-q0$surv
         v0[[i]]<-km[[i]]$km.var
@@ -295,8 +305,8 @@ confint.surv<-function(km,brk,level=0.95,alpha=NA,joint=TRUE,side="both",contr="
     # 
     if (type=="na"){
       for (i in 1:llv){
-        cdiff<-diag(1,llv)
-        cdiff[2:llv,1:(llv-1)]<-cdiff[2:llv,1:(llv-1)]+diag(-1,(llv-1))
+        cdiff<-diag(1,lt)
+        cdiff[2:lt,1:(lt-1)]<-cdiff[2:lt,1:(lt-1)]+diag(-1,(lt-1))
         q0<-km[[i]]$summary
         b0[[i]]<-q0$cumhaz
         v0[[i]]<-km[[i]]$na.var
@@ -408,10 +418,11 @@ f.stochorder<-function(km,brk,fixed=FALSE,level=0.95,alpha=NA,perm="default",des
   if (llv==1){ stop("Error: there are no groups to order") }
   out<-list()
   if (!fixed){
+    srv.m<-matrix(unlist(lapply(c(1:llv),function(i){ km[[i]][["summary"]][,5] })),nrow=lt,ncol=llv)
     ftr<-TRUE
-    perm<-rank(km[[1]][["summary"]][,5])
-    for (i in 2:llv){
-      if (sum(rank(km[[i]][["summary"]][,5])!=perm)>0){ 
+    perm<-rank(srv.m[1,])
+    for (i in 2:lt){
+      if (sum(rank(srv.m[i,])!=perm)>0){ 
         ftr<-FALSE 
       }
     }
@@ -420,6 +431,7 @@ f.stochorder<-function(km,brk,fixed=FALSE,level=0.95,alpha=NA,perm="default",des
         out$confint<-NA
         attr(out$confint,'comment')<-"Stochastic order is failed"
         out$p.value<-1
+        contr<-"undefined"
       } else {
         contr<-contr.stochorder(perm,lt,descending=FALSE)
         CI<-confint.surv(km,brk,level,alpha,joint="sheffe",contr=contr)$confint
